@@ -4,15 +4,15 @@ import time
 import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import List, Dict, Any
+from typing import Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from collector import KEYWORD_GROUPS, parse_yonhap, parse_newsis, parse_naver_exclusive
+from collector import TARGET_KEYWORDS, parse_yonhap, parse_newsis, parse_naver_exclusive
 from summarizer import summarize_with_gemini
 
-app = FastAPI(title="법조 보고 생성기 API")
+app = FastAPI(title="출입처 보고 생성기 API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,14 +38,13 @@ def cleanup_old_jobs():
 class CollectRequest(BaseModel):
     start_dt: str
     end_dt: str
-    groups: List[str]
 
 class SummarizeRequest(BaseModel):
     raw_report_text: str
 
-@app.get("/api/groups")
-def get_keyword_groups():
-    return KEYWORD_GROUPS
+@app.get("/api/keywords")
+def get_keywords():
+    return {"keywords": TARGET_KEYWORDS}
 
 @app.post("/api/collect_start")
 def start_collect_job(req: CollectRequest):
@@ -57,7 +56,6 @@ def start_collect_job(req: CollectRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"날짜 형식 오류: {e}")
 
-    selected_keywords = [kw for g in req.groups if g in KEYWORD_GROUPS for kw in KEYWORD_GROUPS[g]]
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {
         "status": "running",
@@ -73,14 +71,14 @@ def start_collect_job(req: CollectRequest):
             def cb_yonhap(ratio, msg):
                 JOBS[job_id]["percent"] = max(2, int(ratio * 33))
                 JOBS[job_id]["message"] = msg
-            yonhap = parse_yonhap(s_dt, e_dt, selected_keywords, progress_callback=cb_yonhap)
+            yonhap = parse_yonhap(s_dt, e_dt, TARGET_KEYWORDS, progress_callback=cb_yonhap)
 
             def cb_newsis(ratio, msg):
                 JOBS[job_id]["percent"] = 33 + int(ratio * 33)
                 JOBS[job_id]["message"] = msg
             JOBS[job_id]["percent"] = 35
             JOBS[job_id]["message"] = "🔍 [뉴시스] 기사 목록 탐색 중..."
-            newsis = parse_newsis(s_dt, e_dt, selected_keywords, progress_callback=cb_newsis)
+            newsis = parse_newsis(s_dt, e_dt, TARGET_KEYWORDS, progress_callback=cb_newsis)
 
             wire = yonhap + newsis
             wire.sort(key=lambda x: x["datetime"], reverse=True)
@@ -90,7 +88,7 @@ def start_collect_job(req: CollectRequest):
                 JOBS[job_id]["message"] = msg
             JOBS[job_id]["percent"] = 68
             JOBS[job_id]["message"] = "🔍 [단독기사] 네이버 API 탐색 시작..."
-            naver = parse_naver_exclusive(s_dt, e_dt, selected_keywords, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, progress_callback=cb_naver)
+            naver = parse_naver_exclusive(s_dt, e_dt, TARGET_KEYWORDS, NAVER_CLIENT_ID, NAVER_CLIENT_SECRET, progress_callback=cb_naver)
 
             for art in wire:
                 art["datetime_str"] = art["datetime"].strftime("%Y-%m-%d %H:%M")
@@ -128,7 +126,6 @@ def get_job_status(job_id: str):
 
 @app.get("/api/job_keepalive/{job_id}")
 def keep_cpu_alive_until_done(job_id: str):
-    """요청 처리 중에만 CPU를 할당하는 무료 모드에서 작업 완료 시까지 CPU를 깨워두는 롱폴링 엔드포인트"""
     start_wait = time.time()
     while time.time() - start_wait < 120:
         job = JOBS.get(job_id)
