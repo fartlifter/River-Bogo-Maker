@@ -1,0 +1,8 @@
+streamlit
+requests
+httpx
+beautifulsoup4
+google-genai
+fastapi
+uvicorn
+pydantic

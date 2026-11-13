@@ -1,0 +1,35 @@
+name: Legal Report Auto Scheduler
+
+on:
+  schedule:
+    - cron: '30 23 * * *'  # 08:30 KST (23:30 UTC) - 오전 보고
+    - cron: '30 2 * * *'   # 11:30 KST (02:30 UTC) - 오후 보고
+    - cron: '30 7 * * *'   # 16:30 KST (07:30 UTC) - 저녁 보고
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: '실행 슬롯 (morning / afternoon / evening)'
+        required: true
+        default: 'evening'
+
+jobs:
+  auto-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: 패키지 설치
+        run: pip install requests httpx beautifulsoup4 google-genai
+
+      - name: 기사 수집 및 요약 텔레그램 발송
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          python auto_reporter.py ${{ github.event.inputs.slot || 'evening' }}
