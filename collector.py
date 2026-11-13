@@ -5,14 +5,15 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
-import httpx
 from bs4 import BeautifulSoup
 
-KEYWORD_GROUPS = {
-    '법원': ['서울중앙지법','서울고법','대법원','헌법재판소','대한변호사협회','서울지방변호사회','한국여성변호사회',
-          '서울행정법원','서울가정법원','서울회생법원','법원행정처','특허법원','법무법인'],
-    '검찰': ['서울중앙지검','서울고검','대검찰청','서울중앙지방공소청','서울광역공소청','법무부','특검','고위공직자범죄수사처','합동수사본부','중대범죄수사청','공소청','검찰','법제처']
-}
+TARGET_KEYWORDS = [
+    "서울시", "행정안전부", "인사혁신처", "소방청", "개인정보보호위원회",
+    "강남구", "강동구", "강북구", "강서구", "관악구", "광진구", "금천구", "구로구",
+    "노원구", "도봉구", "동대문구", "동작구", "마포구", "서대문구", "서초구", "성동구",
+    "성북구", "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중구", "중랑구",
+    "서울교통공사", "버스노조"
+]
 
 MEDIA_MAPPING = {
     "chosun": "조선", "joongang": "중앙", "donga": "동아", "hani": "한겨레",
@@ -38,7 +39,9 @@ def get_content(url: str, selector: str) -> str:
     except:
         return ""
 
-def fetch_articles_concurrently(article_list, selector, selected_keywords, progress_callback=None, source_name=""):
+def fetch_articles_concurrently(article_list, selector, selected_keywords=None, progress_callback=None, source_name=""):
+    if selected_keywords is None:
+        selected_keywords = TARGET_KEYWORDS
     results = []
     total = len(article_list)
     if total == 0:
@@ -64,7 +67,9 @@ def fetch_articles_concurrently(article_list, selector, selected_keywords, progr
     results.sort(key=lambda x: x["datetime"], reverse=True)
     return results
 
-def parse_yonhap(start_dt, end_dt, selected_keywords, progress_callback=None):
+def parse_yonhap(start_dt, end_dt, selected_keywords=None, progress_callback=None):
+    if selected_keywords is None:
+        selected_keywords = TARGET_KEYWORDS
     collected = []
     page = 1
     past_streak = 0
@@ -120,7 +125,9 @@ def parse_yonhap(start_dt, end_dt, selected_keywords, progress_callback=None):
 
     return fetch_articles_concurrently(collected, "div.story-news.article", selected_keywords, progress_callback, "연합뉴스")
 
-def parse_newsis(start_dt, end_dt, selected_keywords, progress_callback=None):
+def parse_newsis(start_dt, end_dt, selected_keywords=None, progress_callback=None):
+    if selected_keywords is None:
+        selected_keywords = TARGET_KEYWORDS
     collected = []
     page = 1
     past_streak = 0
@@ -175,7 +182,6 @@ def parse_newsis(start_dt, end_dt, selected_keywords, progress_callback=None):
 
     return fetch_articles_concurrently(collected, "div.viewer", selected_keywords, progress_callback, "뉴시스")
 
-# === 네이버 단독기사: 과거 코드.py의 검증된 로직 100% 이식 ===
 def naver_parse_pubdate(pubdate_str):
     try:
         return datetime.strptime(pubdate_str, "%a, %d %b %Y %H:%M:%S %z")
@@ -184,18 +190,14 @@ def naver_parse_pubdate(pubdate_str):
 
 def naver_extract_title_and_body(url):
     try:
-        if "n.news.naver.com" not in url and "lawtimes.co.kr" not in url:
+        if "n.news.naver.com" not in url:
             return None, None
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         if res.status_code != 200:
             return None, None
         soup = BeautifulSoup(res.text, "html.parser")
-        if "lawtimes.co.kr" in url:
-            title_div = soup.find("h1", class_="heading")
-            content_div = soup.find("article", id="article-view-content-div")
-        else:
-            title_div = soup.find("div", class_="media_end_head_title")
-            content_div = soup.find("div", id="newsct_article")
+        title_div = soup.find("div", class_="media_end_head_title")
+        content_div = soup.find("div", id="newsct_article")
         title = title_div.get_text(strip=True) if title_div else None
         body = content_div.get_text(separator="\n", strip=True) if content_div else None
         return title, body
@@ -231,10 +233,9 @@ def safe_api_request(url, headers, params, max_retries=3):
 def fetch_and_filter_naver(item_data):
     item, start_dt, end_dt, selected_keywords = item_data
     link = item.get("link")
-    if not link or ("n.news.naver.com" not in link and "lawtimes.co.kr" not in link):
+    if not link or "n.news.naver.com" not in link:
         return None
 
-    # 시간대를 먼저 확인해 불필요한 웹 요청을 줄이되, 시간대 안이면 무조건 원문 제목/본문 확인
     pub_dt = naver_parse_pubdate(item.get("pubDate"))
     if not pub_dt or not (start_dt <= pub_dt <= end_dt):
         return None
@@ -243,7 +244,6 @@ def fetch_and_filter_naver(item_data):
     if not title or not body:
         return None
 
-    # 과거 코드와 동일하게 직관적인 포함 여부로 검사 (따옴표 붙은 제목 누락 원천 차단)
     if not any(tag in title for tag in ["[단독]", "(단독)", "【단독】", "ⓧ단독", "단독"]):
         return None
 
@@ -254,11 +254,14 @@ def fetch_and_filter_naver(item_data):
             return None
 
     media = naver_extract_media_name(item.get("originallink", ""))
-    clean_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", title).strip()
+    # [단독] 문패를 일관되게 살리기 위해 기존 태그 정리 후 [단독] 부착
+    stripped_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", title).strip()
+    exclusive_title = f"[단독] {stripped_title}"
 
     return {
         "매체": media,
-        "title": clean_title,
+        "title": exclusive_title,
+        "clean_title": stripped_title,
         "raw_title": title,
         "datetime": pub_dt,
         "content": body,
@@ -266,7 +269,9 @@ def fetch_and_filter_naver(item_data):
         "matched_kw": matched_keywords
     }
 
-def parse_naver_exclusive(start_dt, end_dt, selected_keywords, client_id, client_secret, progress_callback=None):
+def parse_naver_exclusive(start_dt, end_dt, selected_keywords=None, client_id="", client_secret="", progress_callback=None):
+    if selected_keywords is None:
+        selected_keywords = TARGET_KEYWORDS
     headers = {
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
