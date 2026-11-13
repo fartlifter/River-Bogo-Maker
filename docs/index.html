@@ -16,10 +16,6 @@
 </head>
 <body class="max-w-7xl mx-auto p-4 md:p-6">
 
-  <script>
-    const API_BASE_URL = "https://river-bogo-maker-1001575491343.asia-northeast3.run.app";
-  </script>
-
   <h1 class="text-xl md:text-2xl font-bold mb-2">📰 시청 단독·통신기사 보고 생성기 For River</h1>
   <p class="text-xs text-gray-400 mb-5">대상 출입처: 서울시 · 행안부 · 인사혁신처 · 소방청 · 개보위 · 25개 자치구 · 서울교통공사 · 버스노조</p>
 
@@ -28,25 +24,25 @@
     <h2 class="text-sm font-semibold text-gray-400 mb-3">⏱️ 보고 시간대 선택</h2>
     
     <div class="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
-      <button onclick="setSlot('오전', 0, 0, 9, 30)" id="slot-오전" class="slot-btn bg-red-600 text-white py-2 px-3 rounded-lg text-sm font-semibold">🌅 오전 (00:00~09:30)</button>
-      <button onclick="setSlot('오후', 9, 30, 13, 20)" id="slot-오후" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold">☀️ 오후 (09:30~13:20)</button>
-      <button onclick="setSlot('저녁1', 13, 20, 17, 0)" id="slot-저녁1" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold">🌇 저녁1 (13:20~17:00)</button>
-      <button onclick="setSlot('저녁2', 17, 0, 19, 0)" id="slot-저녁2" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold">🌙 저녁2 (17:00~19:00)</button>
-      <button onclick="setSlot('수동')" id="slot-수동" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold col-span-2 md:col-span-1">⚙️ 수동 설정</button>
+      <button type="button" onclick="setSlot('오전', 0, 0, 9, 30)" id="slot-오전" class="slot-btn bg-red-600 text-white py-2 px-3 rounded-lg text-sm font-semibold transition">🌅 오전<br>(00:00~09:30)</button>
+      <button type="button" onclick="setSlot('오후', 9, 30, 13, 20)" id="slot-오후" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold transition">☀️ 오후<br>(09:30~13:20)</button>
+      <button type="button" onclick="setSlot('저녁1', 13, 20, 17, 0)" id="slot-저녁1" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold transition">🌇 저녁1<br>(13:20~17:00)</button>
+      <button type="button" onclick="setSlot('저녁2', 17, 0, 19, 0)" id="slot-저녁2" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold transition">🌙 저녁2<br>(17:00~19:00)</button>
+      <button type="button" onclick="setSlot('수동')" id="slot-수동" class="slot-btn bg-gray-800 hover:bg-gray-700 py-2 px-3 rounded-lg text-sm font-semibold col-span-2 md:col-span-1 transition">⚙️ 수동 설정</button>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
       <div>
         <label class="block text-xs text-gray-400 mb-1">시작 일시</label>
-        <input type="datetime-local" id="start-dt" class="w-full bg-[#262730] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+        <input type="datetime-local" id="start-dt" onchange="onManualDateChange()" class="w-full bg-[#262730] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
       </div>
       <div>
         <label class="block text-xs text-gray-400 mb-1">종료 일시</label>
-        <input type="datetime-local" id="end-dt" class="w-full bg-[#262730] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+        <input type="datetime-local" id="end-dt" onchange="onManualDateChange()" class="w-full bg-[#262730] border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
       </div>
     </div>
 
-    <button onclick="collectArticles()" id="btn-collect" class="w-full bg-[#ff4b4b] hover:bg-red-600 text-white font-bold py-2.5 rounded-lg transition">
+    <button type="button" onclick="collectArticles()" id="btn-collect" class="w-full bg-[#ff4b4b] hover:bg-red-600 text-white font-bold py-2.5 rounded-lg transition">
       🚀 기사 수집 시작
     </button>
 
@@ -89,7 +85,7 @@
     <div class="flex flex-col">
       <div class="flex justify-between items-center mb-2">
         <span class="font-bold text-sm">1️⃣ 원문 취합본 (선택된 기사)</span>
-        <button onclick="copyText('raw-textarea', this)" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition">
+        <button type="button" onclick="copyText('raw-textarea', this)" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition">
           📋 원문 전체 복사
         </button>
       </div>
@@ -101,10 +97,10 @@
       <div class="flex justify-between items-center mb-2">
         <span class="font-bold text-sm">2️⃣ Gemini 정제 요약본</span>
         <div class="flex gap-2">
-          <button onclick="runGeminiSummary()" id="btn-summarize" class="bg-[#ff4b4b] hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition">
+          <button type="button" onclick="runGeminiSummary()" id="btn-summarize" class="bg-[#ff4b4b] hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg font-semibold transition">
             🤖 선택 기사 Gemini 요약 실행
           </button>
-          <button onclick="copyText('sum-textarea', this)" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition">
+          <button type="button" onclick="copyText('sum-textarea', this)" class="bg-gray-800 hover:bg-gray-700 border border-gray-600 text-xs px-3 py-1.5 rounded-lg font-semibold transition">
             📋 요약본 전체 복사
           </button>
         </div>
@@ -115,6 +111,8 @@
   </div>
 
   <script>
+    const API_BASE_URL = "https://river-bogo-maker-1001575491343.asia-northeast3.run.app";
+
     let currentSlot = '오전';
     let wireArticles = [];
     let naverArticles = [];
@@ -123,33 +121,71 @@
     let collectPollTimer = null;
     let sumPollTimer = null;
 
-    function toLocalISO(dt) {
-      const offset = dt.getTimezoneOffset() * 60000;
-      return new Date(dt.getTime() - offset).toISOString().slice(0, 16);
+    function pad2(n) {
+      return String(n).padStart(2, '0');
     }
 
-    function setSlot(slot, sh, sm, eh, em) {
-      currentSlot = slot;
+    function formatDateTimeLocal(year, month, day, hour, minute) {
+      return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
+    }
+
+    function highlightActiveSlotBtn(slot) {
       document.querySelectorAll('.slot-btn').forEach(b => {
         b.classList.remove('bg-red-600', 'text-white');
         b.classList.add('bg-gray-800');
       });
-      const activeBtn = document.getElementById(`slot-${slot}`);
-      activeBtn.classList.remove('bg-gray-800');
-      activeBtn.classList.add('bg-red-600', 'text-white');
+      const activeBtn = document.getElementById('slot-' + slot);
+      if (activeBtn) {
+        activeBtn.classList.remove('bg-gray-800');
+        activeBtn.classList.add('bg-red-600', 'text-white');
+      }
+    }
+
+    function setSlot(slot, sh, sm, eh, em) {
+      currentSlot = slot;
+      highlightActiveSlotBtn(slot);
+
+      const startInput = document.getElementById('start-dt');
+      const endInput = document.getElementById('end-dt');
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const d = now.getDate();
 
       if (slot !== '수동') {
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm);
-        let end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), eh, em);
-        if (now < end) end = now;
-        document.getElementById('start-dt').value = toLocalISO(start);
-        document.getElementById('end-dt').value = toLocalISO(end);
+        startInput.value = formatDateTimeLocal(y, m, d, sh, sm);
+        endInput.value = formatDateTimeLocal(y, m, d, eh, em);
+      } else {
+        // 수동 설정 클릭 시 비어있다면 오늘 00:00 ~ 현재 시각으로 기본 세팅
+        if (!startInput.value) startInput.value = formatDateTimeLocal(y, m, d, 0, 0);
+        if (!endInput.value) endInput.value = formatDateTimeLocal(y, m, d, now.getHours(), now.getMinutes());
       }
       buildRawReport();
     }
 
-    setSlot('오전', 0, 0, 9, 30);
+    function onManualDateChange() {
+      currentSlot = '수동';
+      highlightActiveSlotBtn('수동');
+      buildRawReport();
+    }
+
+    // 페이지 로드 시 현재 시각에 맞춰 자동으로 오늘 날짜 및 해당 시간대 기본 선택
+    function initDefaultDateTime() {
+      const now = new Date();
+      const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+      if (totalMinutes < 9 * 60 + 30) {
+        setSlot('오전', 0, 0, 9, 30);
+      } else if (totalMinutes < 13 * 60 + 20) {
+        setSlot('오후', 9, 30, 13, 20);
+      } else if (totalMinutes < 17 * 60) {
+        setSlot('저녁1', 13, 20, 17, 0);
+      } else {
+        setSlot('저녁2', 17, 0, 19, 0);
+      }
+    }
+
+    initDefaultDateTime();
 
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "visible") {
@@ -159,11 +195,11 @@
     });
 
     function highlightContent(text, keywords) {
+      if (!text) return "";
       let safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
       (keywords || []).forEach(kw => {
         if (kw) {
-          const reg = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'g');
-          safe = safe.replace(reg, '<mark>$1</mark>');
+          safe = safe.split(kw).join(`<mark>${kw}</mark>`);
         }
       });
       return safe.replace(/\n/g, '<br><br>');
@@ -176,6 +212,14 @@
       const progBar = document.getElementById('progress-bar');
       const progMsg = document.getElementById('progress-msg');
       const progPct = document.getElementById('progress-pct');
+
+      const startVal = document.getElementById('start-dt').value;
+      const endVal = document.getElementById('end-dt').value;
+
+      if (!startVal || !endVal) {
+        alert("시작 일시와 종료 일시를 선택해주세요.");
+        return;
+      }
 
       btn.disabled = true;
       btn.innerText = "⏳ 백그라운드 수집 진행 중... (화면 전환 가능)";
@@ -190,8 +234,8 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            start_dt: document.getElementById('start-dt').value,
-            end_dt: document.getElementById('end-dt').value
+            start_dt: startVal,
+            end_dt: endVal
           })
         });
 
@@ -223,4 +267,197 @@
 
         progBar.style.width = `${job.percent || 0}%`;
         progPct.innerText = `${job.percent || 0}%`;
-        if (job.message) progMsg.innerText = job.
+        if (job.message) progMsg.innerText = job.message;
+
+        if (job.status === "done") {
+          clearInterval(collectPollTimer);
+          activeCollectJobId = null;
+          const data = job.data;
+          wireArticles = data.wire || [];
+          naverArticles = data.naver || [];
+          renderArticles();
+          buildRawReport();
+          status.innerText = `✅ 수집 완료: 통신기사 ${data.counts.wire_total}건 (연합 ${data.counts.yonhap} / 뉴시스 ${data.counts.newsis}) | 단독기사 ${data.counts.naver}건`;
+          status.classList.remove('hidden');
+          finishCollectUI();
+        } else if (job.status === "error") {
+          clearInterval(collectPollTimer);
+          activeCollectJobId = null;
+          alert("수집 중 오류 발생: " + job.error);
+          finishCollectUI();
+        }
+      } catch (e) {}
+    }
+
+    function finishCollectUI() {
+      const btn = document.getElementById('btn-collect');
+      const progWrap = document.getElementById('progress-wrap');
+      btn.disabled = false;
+      btn.innerText = "🚀 기사 수집 시작";
+      setTimeout(() => { progWrap.classList.add('hidden'); }, 1500);
+    }
+
+    function renderArticles() {
+      document.getElementById('wire-count').innerText = wireArticles.length;
+      document.getElementById('naver-count').innerText = naverArticles.length;
+
+      const wireContainer = document.getElementById('wire-list');
+      if (wireArticles.length === 0) {
+        wireContainer.innerHTML = '<p class="text-gray-500">수집된 통신기사가 없습니다.</p>';
+      } else {
+        wireContainer.innerHTML = wireArticles.map((art, i) => `
+          <details class="bg-[#1a1c24] border border-gray-800 rounded-lg p-3">
+            <summary class="cursor-pointer font-medium text-gray-200 flex items-center gap-3">
+              <input type="checkbox" class="wire-chk w-4 h-4 accent-red-500" data-idx="${i}" onclick="event.stopPropagation(); buildRawReport();">
+              <span>[${art.source}] ${art.title}</span>
+            </summary>
+            <div class="mt-3 pt-3 border-t border-gray-800 text-gray-300 space-y-2">
+              <div class="text-xs text-gray-400">
+                ${art.datetime_str} | 일치 키워드: <b class="text-yellow-300">${(art.matched_kw || []).join(', ')}</b> | 
+                <a href="${art.url}" target="_blank" class="text-blue-400 underline">🔗 원문 링크</a>
+              </div>
+              <div class="leading-relaxed text-sm pt-2">${highlightContent(art.content, art.matched_kw)}</div>
+            </div>
+          </details>
+        `).join('');
+      }
+
+      const naverContainer = document.getElementById('naver-list');
+      if (naverArticles.length === 0) {
+        naverContainer.innerHTML = '<p class="text-gray-500">수집된 단독기사가 없습니다.</p>';
+      } else {
+        naverContainer.innerHTML = naverArticles.map((art, i) => `
+          <details class="bg-[#1a1c24] border border-gray-800 rounded-lg p-3">
+            <summary class="cursor-pointer font-medium text-gray-200 flex items-center gap-3">
+              <input type="checkbox" class="naver-chk w-4 h-4 accent-red-500" data-idx="${i}" onclick="event.stopPropagation(); buildRawReport();">
+              <span>[${art['매체']}] ${art.title}</span>
+            </summary>
+            <div class="mt-3 pt-3 border-t border-gray-800 text-gray-300 space-y-2">
+              <div class="text-xs text-gray-400">
+                ${art.datetime_str} | 일치 키워드: <b class="text-yellow-300">${(art.matched_kw || []).join(', ')}</b> | 
+                <a href="${art.url}" target="_blank" class="text-blue-400 underline">🔗 원문 링크</a>
+              </div>
+              <div class="leading-relaxed text-sm pt-2">${highlightContent(art.content, art.matched_kw)}</div>
+            </div>
+          </details>
+        `).join('');
+      }
+    }
+
+    function buildRawReport() {
+      const selectedWires = Array.from(document.querySelectorAll('.wire-chk:checked')).map(cb => wireArticles[cb.dataset.idx]);
+      const selectedNavers = Array.from(document.querySelectorAll('.naver-chk:checked')).map(cb => naverArticles[cb.dataset.idx]);
+
+      if (selectedWires.length === 0 && selectedNavers.length === 0) {
+        document.getElementById('raw-textarea').value = "선택된 기사가 없습니다.";
+        return;
+      }
+
+      const blocks = [];
+
+      if (currentSlot === "저녁1" || currentSlot === "저녁2") {
+        blocks.push("<타사보고>");
+        selectedWires.forEach(w => {
+          blocks.push(`*${w.title}\n-${w.content.trim()}`);
+        });
+        selectedNavers.forEach(n => {
+          blocks.push(`*${n.title}(${n['매체']})\n-${n.content.trim()}`);
+        });
+      } else {
+        const headerName = currentSlot === "오후" ? "<오후보고>" : "<오전보고>";
+        blocks.push(headerName);
+
+        selectedWires.forEach(w => {
+          blocks.push(`*${w.title}\n-${w.content.trim()}`);
+        });
+
+        if (selectedNavers.length > 0) {
+          blocks.push("<타사>");
+          selectedNavers.forEach(n => {
+            blocks.push(`*${n.title}(${n['매체']})\n-${n.content.trim()}`);
+          });
+        }
+      }
+
+      document.getElementById('raw-textarea').value = blocks.join('\n\n').trim();
+    }
+
+    async function runGeminiSummary() {
+      const rawText = document.getElementById('raw-textarea').value;
+      if (!rawText || rawText === "선택된 기사가 없습니다.") {
+        alert("요약할 기사를 먼저 체크박스로 선택해주세요.");
+        return;
+      }
+
+      const btn = document.getElementById('btn-summarize');
+      const sumArea = document.getElementById('sum-textarea');
+      btn.disabled = true;
+      btn.innerText = "⏳ Gemini 요약 중...";
+      sumArea.value = "Gemini가 보고 양식에 맞춰 정제 요약 중입니다... (화면 전환 가능)";
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/summarize_start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw_report_text: rawText })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "요약 시작 실패");
+        activeSumJobId = data.job_id;
+
+        fetch(`${API_BASE_URL}/api/job_keepalive/${data.job_id}`).catch(() => {});
+
+        if (sumPollTimer) clearInterval(sumPollTimer);
+        sumPollTimer = setInterval(checkSummarizeStatus, 800);
+      } catch (err) {
+        sumArea.value = "요약 중 오류가 발생했습니다: " + err.message;
+        btn.disabled = false;
+        btn.innerText = "🤖 선택 기사 Gemini 요약 실행";
+      }
+    }
+
+    async function checkSummarizeStatus() {
+      if (!activeSumJobId) return;
+      const btn = document.getElementById('btn-summarize');
+      const sumArea = document.getElementById('sum-textarea');
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/job_status/${activeSumJobId}`);
+        if (!res.ok) return;
+        const job = await res.json();
+
+        if (job.status === "done") {
+          clearInterval(sumPollTimer);
+          activeSumJobId = null;
+          sumArea.value = job.summary;
+          btn.disabled = false;
+          btn.innerText = "🤖 선택 기사 Gemini 요약 실행";
+        } else if (job.status === "error") {
+          clearInterval(sumPollTimer);
+          activeSumJobId = null;
+          sumArea.value = "요약 중 오류가 발생했습니다: " + job.error;
+          btn.disabled = false;
+          btn.innerText = "🤖 선택 기사 Gemini 요약 실행";
+        }
+      } catch (e) {}
+    }
+
+    function copyText(textareaId, btnElement) {
+      const text = document.getElementById(textareaId).value;
+      if (!text || text.includes("선택된 기사가 없습니다") || text.includes("여기에 표시됩니다")) {
+        alert("복사할 내용이 없습니다.");
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btnElement.innerText;
+        btnElement.innerText = "✅ 복사 완료!";
+        btnElement.classList.add("bg-emerald-600", "text-white");
+        setTimeout(() => {
+          btnElement.innerText = orig;
+          btnElement.classList.remove("bg-emerald-600", "text-white");
+        }, 1500);
+      });
+    }
+  </script>
+</body>
+</html>
