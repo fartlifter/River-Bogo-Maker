@@ -38,6 +38,11 @@ MEDIA_MAPPING = {
     "dailian.co": "데일리안", "ilyo.co": "일요신문", "sisain.co": "시사IN", "lawtimes": "법률신문"
 }
 
+def clean_html_text(raw_str: str) -> str:
+    if not raw_str:
+        return ""
+    return html.unescape(re.sub(r"<.*?>", "", raw_str)).strip()
+
 def filter_keywords_smart(title: str, content: str) -> list:
     """
     고유 키워드(23개 자치구·부처)는 즉시 매칭하고,
@@ -48,7 +53,6 @@ def filter_keywords_smart(title: str, content: str) -> list:
 
     for gu in AMBIGUOUS_GU_KEYWORDS:
         if gu in full_text:
-            # 기사에 '서울'이 함께 들어있고, 지방 발신((울산=연합뉴스) 등) 기사가 아닐 때만 서울 중구/강서구로 인정
             if "서울" in full_text and not LOCAL_DATELINE_PATTERN.search(content[:150]):
                 matched.append(gu)
 
@@ -64,7 +68,6 @@ def get_content(url: str, selector: str) -> str:
         if not content:
             return ""
 
-        # 연합뉴스·뉴시스 본문 내 불필요한 기자 구독 버튼, 사진 캡션, 관련뉴스 박스 제거
         for junk in content.select(
             ".writer-zone, .writer-zone01, .byline, .related-zone, .rel-article, "
             ".comp-box, .img-con, .txt-copyright, .ad-box, figure, script, style"
@@ -72,7 +75,6 @@ def get_content(url: str, selector: str) -> str:
             junk.decompose()
 
         text = content.get_text(separator="\n", strip=True)
-        # 하단 관련 뉴스 및 저작권 문구 이후 잘라내기
         text = re.split(r"\n(?:관련 뉴스|제보는 카카오톡|<저작권자)", text)[0]
         return text.strip()
     except:
@@ -222,17 +224,78 @@ def naver_parse_pubdate(pubdate_str):
         return None
 
 def naver_extract_title_and_body(url):
+    """
+    1) 네이버뉴스 인링크(n.news.naver.com)면 전용 셀렉터로 추출
+    2) 언론사 자체 링크(비CP사 아웃링크)면 범용 언론사 본문 셀렉터 및 <p> 태그로 추출
+    """
     try:
-        if "n.news.naver.com" not in url:
-            return None, None
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        res = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"},
+            timeout=5
+        )
         if res.status_code != 200:
             return None, None
+
+        # 외부 언론사 사이트 한글 인코딩 깨짐 방지
+        if res.encoding and res.encoding.lower() in ("iso-8859-1", "latin1"):
+            res.encoding = res.apparent_encoding
+
         soup = BeautifulSoup(res.text, "html.parser")
-        title_div = soup.find("div", class_="media_end_head_title")
-        content_div = soup.find("div", id="newsct_article")
-        title = title_div.get_text(strip=True) if title_div else None
-        body = content_div.get_text(separator="\n", strip=True) if content_div else None
+
+        # 1. 네이버 뉴스 페이지인 경우
+        if "news.naver.com" in url:
+            title_div = (
+                soup.find("div", class_="media_end_head_title") or
+                soup.find("h2", id="title_area") or
+                soup.find("h3", id="articleTitle")
+            )
+            content_div = (
+                soup.find("div", id="newsct_article") or
+                soup.find("div", id="articeBody") or
+                soup.find("div", id="articleBodyContents")
+            )
+            title = title_div.get_text(strip=True) if title_div else None
+            body = content_div.get_text(separator="\n", strip=True) if content_div else None
+            return title, body
+
+        # 2. 네이버 뉴스가 아닌 언론사 자체 페이지(아웃링크)인 경우
+        og_title = soup.find("meta", property="og:title")
+        title_tag = soup.find("h1") or soup.find("title")
+        title = og_title.get("content", "").strip() if (og_title and og_title.get("content")) else (title_tag.get_text(strip=True) if title_tag else None)
+
+        for junk in soup.select("script, style, nav, header, footer, aside, iframe, figure, .ad, .advertisement, .related, .copyright"):
+            junk.decompose()
+
+        # 국내 언론사(ND소프트 등) 표준 본문 컨테이너 순차 탐색
+        candidates = [
+            "#article-view-content-div",
+            "#articleBody",
+            "#article_body",
+            "#news_body_area",
+            ".article_view",
+            ".article-body",
+            ".article_body",
+            ".view_con",
+            ".news_cnt_detail_wrap",
+            "[itemprop='articleBody']",
+            "article"
+        ]
+        body = None
+        for sel in candidates:
+            node = soup.select_one(sel)
+            if node:
+                txt = node.get_text(separator="\n", strip=True)
+                if len(txt) >= 80:
+                    body = txt
+                    break
+
+        # 컨테이너 매칭 실패 시 본문 문단(<p>) 취합
+        if not body:
+            p_lines = [p.get_text(" ", strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) >= 25]
+            if p_lines:
+                body = "\n".join(p_lines)
+
         return title, body
     except:
         return None, None
@@ -246,7 +309,7 @@ def naver_extract_media_name(url):
             return MEDIA_MAPPING[composite_key]
         for part in reversed(parts):
             if part in MEDIA_MAPPING:
-                return MEDIA_MAPPING[part]
+                return media_mapping[part] if 'media_mapping' in locals() else MEDIA_MAPPING[part]
         return composite_key.upper()
     except:
         return "기타"
@@ -265,37 +328,61 @@ def safe_api_request(url, headers, params, max_retries=3):
 
 def fetch_and_filter_naver(item_data):
     item, start_dt, end_dt, selected_keywords = item_data
-    link = item.get("link")
-    if not link or "n.news.naver.com" not in link:
+
+    naver_link = item.get("link", "")
+    orig_link = item.get("originallink", "")
+
+    # 링크 우선순위: 네이버뉴스 페이지(n.news.naver.com)가 있으면 우선 사용, 없으면 언론사 자체 링크 사용
+    if "news.naver.com" in naver_link:
+        target_url = naver_link
+    else:
+        target_url = orig_link or naver_link
+
+    if not target_url:
         return None
 
     pub_dt = naver_parse_pubdate(item.get("pubDate"))
     if not pub_dt or not (start_dt <= pub_dt <= end_dt):
         return None
 
-    title, body = naver_extract_title_and_body(link)
+    api_title = clean_html_text(item.get("title", ""))
+    api_desc = clean_html_text(item.get("description", ""))
+
+    title, body = naver_extract_title_and_body(target_url)
+
+    # 웹 크롤링 실패 또는 차단 시 네이버 API의 제목·요약문(description)으로 자동 폴백
+    if not title:
+        title = api_title
+    if not body:
+        body = api_desc
+
     if not title or not body:
         return None
 
-    if not any(tag in title for tag in ["[단독]", "(단독)", "【단독】", "ⓧ단독", "단독"]):
+    # 웹페이지 제목이나 API 제목 중 하나라도 단독 표기가 있으면 인정
+    combined_title_check = f"{title} {api_title}"
+    if not any(tag in combined_title_check for tag in ["[단독]", "(단독)", "【단독】", "ⓧ단독", "단독"]):
         return None
 
-    matched_keywords = filter_keywords_smart(title, body)
+    # 본문 크롤링 텍스트와 API 요약문을 합쳐 키워드 검사 (본문 일부 누락 대비)
+    matched_keywords = filter_keywords_smart(title, f"{body}\n{api_desc}")
     if not matched_keywords:
         return None
 
-    media = naver_extract_media_name(item.get("originallink", ""))
-    stripped_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", title).strip()
+    media = naver_extract_media_name(orig_link or target_url)
+    # 제목은 가장 깔끔한 API 제목을 우선 기준으로 정리
+    base_title = api_title if api_title else title
+    stripped_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", base_title).strip()
     exclusive_title = f"[단독] {stripped_title}"
 
     return {
         "매체": media,
         "title": exclusive_title,
         "clean_title": stripped_title,
-        "raw_title": title,
+        "raw_title": base_title,
         "datetime": pub_dt,
         "content": body,
-        "url": link,
+        "url": target_url,
         "matched_kw": matched_keywords
     }
 
