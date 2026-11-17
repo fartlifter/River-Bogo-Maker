@@ -1,6 +1,6 @@
 {
-  "name": "법조 보고 생성기",
-  "short_name": "법조보고",
+  "name": "시청 단독·통신기사 보고생성기",
+  "short_name": "털보의 보고생성기",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0e1117",
