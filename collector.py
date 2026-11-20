@@ -5,9 +5,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 
-# 1. '서울' 단어가 없어도 무조건 수집할 고유 키워드 (중앙부처 + 서울 고유 23개 자치구 + 공사/노조)
 ALWAYS_PASS_KEYWORDS = [
     "서울시", "행정안전부", "행안부", "인사혁신처", "소방청", "개인정보보호위원회", "개보위",
     "서울교통공사", "버스노조",
@@ -16,13 +16,9 @@ ALWAYS_PASS_KEYWORDS = [
     "성북구", "송파구", "양천구", "영등포구", "용산구", "은평구", "종로구", "중랑구"
 ]
 
-# 2. 타 광역시(부산·대구·인천·대전·울산)와 이름이 겹쳐 본문에 '서울'이 함께 있어야만 통과시킬 자치구
 AMBIGUOUS_GU_KEYWORDS = ["중구", "강서구"]
-
-# 전체 키워드 리스트 (외부 참조용)
 TARGET_KEYWORDS = ALWAYS_PASS_KEYWORDS + AMBIGUOUS_GU_KEYWORDS
 
-# 지방 발신 기사 판별용 패턴 (예: (울산=연합뉴스), 【부산=뉴시스】 등)
 LOCAL_DATELINE_PATTERN = re.compile(r"[\(\[【]\s*(부산|대구|인천|광주|대전|울산|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s*=")
 
 MEDIA_MAPPING = {
@@ -38,27 +34,6 @@ MEDIA_MAPPING = {
     "dailian.co": "데일리안", "ilyo.co": "일요신문", "sisain.co": "시사IN", "lawtimes": "법률신문"
 }
 
-def clean_html_text(raw_str: str) -> str:
-    if not raw_str:
-        return ""
-    return html.unescape(re.sub(r"<.*?>", "", raw_str)).strip()
-
-def filter_keywords_smart(title: str, content: str) -> list:
-    """
-    고유 키워드(23개 자치구·부처)는 즉시 매칭하고,
-    타 지역 중복 자치구(중구·강서구)는 기사 내 '서울'이 언급된 경우에만 매칭 인정
-    """
-    full_text = f"{title}\n{content}"
-    matched = [kw for kw in ALWAYS_PASS_KEYWORDS if kw in full_text]
-
-    for gu in AMBIGUOUS_GU_KEYWORDS:
-        if gu in full_text:
-            if "서울" in full_text and not LOCAL_DATELINE_PATTERN.search(content[:150]):
-                matched.append(gu)
-
-    return matched
-
-# 커넥션 풀 재사용 세션 (Keep-Alive)
 SESSION = requests.Session()
 adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
 SESSION.mount("http://", adapter)
@@ -68,6 +43,20 @@ SESSION.headers.update({
 })
 
 MAX_WORKERS = 12
+
+def clean_html_text(raw_str: str) -> str:
+    if not raw_str:
+        return ""
+    return html.unescape(re.sub(r"<.*?>", "", raw_str)).strip()
+
+def filter_keywords_smart(title: str, content: str) -> list:
+    full_text = f"{title}\n{content}"
+    matched = [kw for kw in ALWAYS_PASS_KEYWORDS if kw in full_text]
+    for gu in AMBIGUOUS_GU_KEYWORDS:
+        if gu in full_text:
+            if "서울" in full_text and not LOCAL_DATELINE_PATTERN.search(content[:150]):
+                matched.append(gu)
+    return matched
 
 def get_content(url: str, selector: str) -> str:
     try:
@@ -91,7 +80,7 @@ def get_content(url: str, selector: str) -> str:
     except:
         return ""
 
-def fetch_articles_concurrently(article_list, selector, selected_keywords, progress_callback=None, source_name=""):
+def fetch_articles_concurrently(article_list, selector, selected_keywords=None, progress_callback=None, source_name=""):
     results = []
     total = len(article_list)
     if total == 0:
@@ -104,9 +93,8 @@ def fetch_articles_concurrently(article_list, selector, selected_keywords, progr
             try:
                 content = future.result()
                 if content:
-                    full_search_text = f"{art['title']}\n{content}"
-                    matched = [kw for kw in selected_keywords if kw in full_search_text]
-                    if not selected_keywords or matched:
+                    matched = filter_keywords_smart(art['title'], content)
+                    if matched:
                         art['content'] = content
                         art['matched_kw'] = matched
                         results.append(art)
@@ -118,7 +106,7 @@ def fetch_articles_concurrently(article_list, selector, selected_keywords, progr
     results.sort(key=lambda x: x["datetime"], reverse=True)
     return results
 
-def parse_yonhap(start_dt, end_dt, selected_keywords, progress_callback=None):
+def parse_yonhap(start_dt, end_dt, selected_keywords=None, progress_callback=None):
     collected = []
     page = 1
     past_streak = 0
@@ -174,7 +162,7 @@ def parse_yonhap(start_dt, end_dt, selected_keywords, progress_callback=None):
 
     return fetch_articles_concurrently(collected, "div.story-news.article", selected_keywords, progress_callback, "연합뉴스")
 
-def parse_newsis(start_dt, end_dt, selected_keywords, progress_callback=None):
+def parse_newsis(start_dt, end_dt, selected_keywords=None, progress_callback=None):
     collected = []
     page = 1
     past_streak = 0
@@ -333,7 +321,6 @@ def fetch_and_filter_naver(item_data):
     api_title = clean_html_text(item.get("title", ""))
     api_desc = clean_html_text(item.get("description", ""))
 
-    # 웹 접속 전 1차 필터링: API 제목에 '단독'이 아예 없는 기사(본문 단순 일치)는 불필요한 크롤링 생략
     if "단독" not in api_title:
         return None
 
@@ -347,20 +334,19 @@ def fetch_and_filter_naver(item_data):
     if not title or not body:
         return None
 
-    matched_keywords = []
-    if selected_keywords:
-        search_target = f"{title}\n{body}\n{api_desc}"
-        matched_keywords = [kw for kw in selected_keywords if kw in search_target]
-        if not matched_keywords:
-            return None
+    matched_keywords = filter_keywords_smart(title, f"{body}\n{api_desc}")
+    if not matched_keywords:
+        return None
 
     media = naver_extract_media_name(orig_link or target_url)
     base_title = api_title if api_title else title
-    clean_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", base_title).strip()
+    stripped_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", base_title).strip()
+    exclusive_title = f"[단독] {stripped_title}"
 
     return {
         "매체": media,
-        "title": clean_title,
+        "title": exclusive_title,
+        "clean_title": stripped_title,
         "raw_title": base_title,
         "datetime": pub_dt,
         "content": body,
@@ -368,7 +354,7 @@ def fetch_and_filter_naver(item_data):
         "matched_kw": matched_keywords
     }
 
-def parse_naver_exclusive(start_dt, end_dt, selected_keywords, client_id, client_secret, progress_callback=None):
+def parse_naver_exclusive(start_dt, end_dt, selected_keywords=None, client_id="", client_secret="", progress_callback=None):
     headers = {
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
@@ -396,7 +382,6 @@ def parse_naver_exclusive(start_dt, end_dt, selected_keywords, client_id, client
         if not items:
             break
 
-        # 이 페이지(100건)의 기사가 모두 start_dt보다 과거인지 확인 (조기 종료)
         page_has_valid_time = False
         for it in items:
             p_dt = naver_parse_pubdate(it.get("pubDate"))
