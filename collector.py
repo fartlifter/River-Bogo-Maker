@@ -58,9 +58,20 @@ def filter_keywords_smart(title: str, content: str) -> list:
 
     return matched
 
+# 커넥션 풀 재사용 세션 (Keep-Alive)
+SESSION = requests.Session()
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+SESSION.mount("http://", adapter)
+SESSION.mount("https://", adapter)
+SESSION.headers.update({
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+})
+
+MAX_WORKERS = 12
+
 def get_content(url: str, selector: str) -> str:
     try:
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+        res = SESSION.get(url, timeout=(2.5, 4))
         if res.status_code != 200:
             return ""
         soup = BeautifulSoup(res.text, "html.parser")
@@ -80,21 +91,22 @@ def get_content(url: str, selector: str) -> str:
     except:
         return ""
 
-def fetch_articles_concurrently(article_list, selector, selected_keywords=None, progress_callback=None, source_name=""):
+def fetch_articles_concurrently(article_list, selector, selected_keywords, progress_callback=None, source_name=""):
     results = []
     total = len(article_list)
     if total == 0:
         return results
 
-    with ThreadPoolExecutor(max_workers=25) as executor:
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(get_content, art['url'], selector): art for art in article_list}
         for i, future in enumerate(as_completed(futures)):
             art = futures[future]
             try:
                 content = future.result()
                 if content:
-                    matched = filter_keywords_smart(art['title'], content)
-                    if matched:
+                    full_search_text = f"{art['title']}\n{content}"
+                    matched = [kw for kw in selected_keywords if kw in full_search_text]
+                    if not selected_keywords or matched:
                         art['content'] = content
                         art['matched_kw'] = matched
                         results.append(art)
@@ -106,7 +118,7 @@ def fetch_articles_concurrently(article_list, selector, selected_keywords=None, 
     results.sort(key=lambda x: x["datetime"], reverse=True)
     return results
 
-def parse_yonhap(start_dt, end_dt, selected_keywords=None, progress_callback=None):
+def parse_yonhap(start_dt, end_dt, selected_keywords, progress_callback=None):
     collected = []
     page = 1
     past_streak = 0
@@ -118,7 +130,7 @@ def parse_yonhap(start_dt, end_dt, selected_keywords=None, progress_callback=Non
     while True:
         url = f"https://www.yna.co.kr/society/all/{page}"
         try:
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+            res = SESSION.get(url, timeout=(3, 5))
             if res.status_code != 200:
                 break
         except:
@@ -162,7 +174,7 @@ def parse_yonhap(start_dt, end_dt, selected_keywords=None, progress_callback=Non
 
     return fetch_articles_concurrently(collected, "div.story-news.article", selected_keywords, progress_callback, "연합뉴스")
 
-def parse_newsis(start_dt, end_dt, selected_keywords=None, progress_callback=None):
+def parse_newsis(start_dt, end_dt, selected_keywords, progress_callback=None):
     collected = []
     page = 1
     past_streak = 0
@@ -174,7 +186,7 @@ def parse_newsis(start_dt, end_dt, selected_keywords=None, progress_callback=Non
     while True:
         url = f"https://www.newsis.com/society/list/?cid=10200&scid=10201&page={page}"
         try:
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6)
+            res = SESSION.get(url, timeout=(3, 5))
             if res.status_code != 200:
                 break
         except:
@@ -224,26 +236,16 @@ def naver_parse_pubdate(pubdate_str):
         return None
 
 def naver_extract_title_and_body(url):
-    """
-    1) 네이버뉴스 인링크(n.news.naver.com)면 전용 셀렉터로 추출
-    2) 언론사 자체 링크(비CP사 아웃링크)면 범용 언론사 본문 셀렉터 및 <p> 태그로 추출
-    """
     try:
-        res = requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"},
-            timeout=5
-        )
+        res = SESSION.get(url, timeout=(2.5, 4))
         if res.status_code != 200:
             return None, None
 
-        # 외부 언론사 사이트 한글 인코딩 깨짐 방지
         if res.encoding and res.encoding.lower() in ("iso-8859-1", "latin1"):
             res.encoding = res.apparent_encoding
 
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 1. 네이버 뉴스 페이지인 경우
         if "news.naver.com" in url:
             title_div = (
                 soup.find("div", class_="media_end_head_title") or
@@ -259,27 +261,17 @@ def naver_extract_title_and_body(url):
             body = content_div.get_text(separator="\n", strip=True) if content_div else None
             return title, body
 
-        # 2. 네이버 뉴스가 아닌 언론사 자체 페이지(아웃링크)인 경우
         og_title = soup.find("meta", property="og:title")
-        title_tag = soup.find("h1") or soup.find("title")
+        title_tag = soup.find("h1", class_="heading") or soup.find("h1") or soup.find("title")
         title = og_title.get("content", "").strip() if (og_title and og_title.get("content")) else (title_tag.get_text(strip=True) if title_tag else None)
 
         for junk in soup.select("script, style, nav, header, footer, aside, iframe, figure, .ad, .advertisement, .related, .copyright"):
             junk.decompose()
 
-        # 국내 언론사(ND소프트 등) 표준 본문 컨테이너 순차 탐색
         candidates = [
-            "#article-view-content-div",
-            "#articleBody",
-            "#article_body",
-            "#news_body_area",
-            ".article_view",
-            ".article-body",
-            ".article_body",
-            ".view_con",
-            ".news_cnt_detail_wrap",
-            "[itemprop='articleBody']",
-            "article"
+            "#article-view-content-div", "#articleBody", "#article_body",
+            "#news_body_area", ".article_view", ".article-body", ".article_body",
+            ".view_con", ".news_cnt_detail_wrap", "[itemprop='articleBody']", "article"
         ]
         body = None
         for sel in candidates:
@@ -290,7 +282,6 @@ def naver_extract_title_and_body(url):
                     body = txt
                     break
 
-        # 컨테이너 매칭 실패 시 본문 문단(<p>) 취합
         if not body:
             p_lines = [p.get_text(" ", strip=True) for p in soup.find_all("p") if len(p.get_text(strip=True)) >= 25]
             if p_lines:
@@ -309,7 +300,7 @@ def naver_extract_media_name(url):
             return MEDIA_MAPPING[composite_key]
         for part in reversed(parts):
             if part in MEDIA_MAPPING:
-                return media_mapping[part] if 'media_mapping' in locals() else MEDIA_MAPPING[part]
+                return MEDIA_MAPPING[part]
         return composite_key.upper()
     except:
         return "기타"
@@ -318,7 +309,7 @@ def safe_api_request(url, headers, params, max_retries=3):
     res = None
     for _ in range(max_retries):
         try:
-            res = requests.get(url, headers=headers, params=params, timeout=5)
+            res = SESSION.get(url, headers=headers, params=params, timeout=(3, 5))
             if res.status_code == 200:
                 return res
             t.sleep(0.5)
@@ -331,13 +322,7 @@ def fetch_and_filter_naver(item_data):
 
     naver_link = item.get("link", "")
     orig_link = item.get("originallink", "")
-
-    # 링크 우선순위: 네이버뉴스 페이지(n.news.naver.com)가 있으면 우선 사용, 없으면 언론사 자체 링크 사용
-    if "news.naver.com" in naver_link:
-        target_url = naver_link
-    else:
-        target_url = orig_link or naver_link
-
+    target_url = naver_link if "news.naver.com" in naver_link else (orig_link or naver_link)
     if not target_url:
         return None
 
@@ -348,9 +333,12 @@ def fetch_and_filter_naver(item_data):
     api_title = clean_html_text(item.get("title", ""))
     api_desc = clean_html_text(item.get("description", ""))
 
+    # 웹 접속 전 1차 필터링: API 제목에 '단독'이 아예 없는 기사(본문 단순 일치)는 불필요한 크롤링 생략
+    if "단독" not in api_title:
+        return None
+
     title, body = naver_extract_title_and_body(target_url)
 
-    # 웹 크롤링 실패 또는 차단 시 네이버 API의 제목·요약문(description)으로 자동 폴백
     if not title:
         title = api_title
     if not body:
@@ -359,26 +347,20 @@ def fetch_and_filter_naver(item_data):
     if not title or not body:
         return None
 
-    # 웹페이지 제목이나 API 제목 중 하나라도 단독 표기가 있으면 인정
-    combined_title_check = f"{title} {api_title}"
-    if not any(tag in combined_title_check for tag in ["[단독]", "(단독)", "【단독】", "ⓧ단독", "단독"]):
-        return None
-
-    # 본문 크롤링 텍스트와 API 요약문을 합쳐 키워드 검사 (본문 일부 누락 대비)
-    matched_keywords = filter_keywords_smart(title, f"{body}\n{api_desc}")
-    if not matched_keywords:
-        return None
+    matched_keywords = []
+    if selected_keywords:
+        search_target = f"{title}\n{body}\n{api_desc}"
+        matched_keywords = [kw for kw in selected_keywords if kw in search_target]
+        if not matched_keywords:
+            return None
 
     media = naver_extract_media_name(orig_link or target_url)
-    # 제목은 가장 깔끔한 API 제목을 우선 기준으로 정리
     base_title = api_title if api_title else title
-    stripped_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", base_title).strip()
-    exclusive_title = f"[단독] {stripped_title}"
+    clean_title = re.sub(r"\[단독\]|\(단독\)|【단독】|ⓧ단독|^단독\s*[:-]?", "", base_title).strip()
 
     return {
         "매체": media,
-        "title": exclusive_title,
-        "clean_title": stripped_title,
+        "title": clean_title,
         "raw_title": base_title,
         "datetime": pub_dt,
         "content": body,
@@ -386,7 +368,7 @@ def fetch_and_filter_naver(item_data):
         "matched_kw": matched_keywords
     }
 
-def parse_naver_exclusive(start_dt, end_dt, selected_keywords=None, client_id="", client_secret="", progress_callback=None):
+def parse_naver_exclusive(start_dt, end_dt, selected_keywords, client_id, client_secret, progress_callback=None):
     headers = {
         "X-Naver-Client-Id": client_id,
         "X-Naver-Client-Secret": client_secret
@@ -414,7 +396,15 @@ def parse_naver_exclusive(start_dt, end_dt, selected_keywords=None, client_id=""
         if not items:
             break
 
-        with ThreadPoolExecutor(max_workers=25) as executor:
+        # 이 페이지(100건)의 기사가 모두 start_dt보다 과거인지 확인 (조기 종료)
+        page_has_valid_time = False
+        for it in items:
+            p_dt = naver_parse_pubdate(it.get("pubDate"))
+            if p_dt and p_dt >= start_dt:
+                page_has_valid_time = True
+                break
+
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             futures = [
                 executor.submit(fetch_and_filter_naver, (item, start_dt, end_dt, selected_keywords))
                 for item in items
@@ -424,6 +414,9 @@ def parse_naver_exclusive(start_dt, end_dt, selected_keywords=None, client_id=""
                 if result and result["url"] not in seen_links:
                     seen_links.add(result["url"])
                     all_articles.append(result)
+
+        if not page_has_valid_time:
+            break
 
     all_articles.sort(key=lambda x: x["datetime"], reverse=True)
     return all_articles
